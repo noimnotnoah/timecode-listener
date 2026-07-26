@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timecode Listener</title>
+<meta name="description" content="Hear timecode. Plays a click for every frame at a chosen frame rate so you can listen to how fast a timecode is running.">
+<style>
+  :root{
+    --bg:#0b0d12;
+    --panel:#12151d;
+    --panel-2:#171b26;
+    --text:#eef1f6;
+    --muted:#8b93a7;
+    --accent:#5ee3c9;
+    --accent-2:#ff5e7e;
+    --border:#232838;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:radial-gradient(circle at 50% -10%, #1a2030 0%, var(--bg) 55%);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    min-height:100vh;
+    padding:24px;
+  }
+  .card{
+    width:100%;
+    max-width:560px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:16px;
+    padding:28px 28px 24px;
+    box-shadow:0 20px 60px rgba(0,0,0,.45);
+  }
+  h1{
+    margin:0 0 4px;
+    font-size:1.4rem;
+    letter-spacing:.2px;
+  }
+  .sub{
+    color:var(--muted);
+    font-size:.88rem;
+    margin:0 0 22px;
+  }
+  .timecode{
+    font-variant-numeric:tabular-nums;
+    font-family:"SF Mono",Menlo,Consolas,monospace;
+    font-size:2.6rem;
+    text-align:center;
+    background:#000;
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:18px 8px;
+    letter-spacing:2px;
+    color:var(--accent);
+    margin-bottom:18px;
+    user-select:none;
+  }
+  .timecode .frame{ color:var(--accent-2); }
+  .fps-label{
+    text-align:center;
+    color:var(--muted);
+    font-size:.8rem;
+    margin:-12px 0 20px;
+  }
+  .row{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-bottom:16px;
+  }
+  .preset{
+    flex:1 1 auto;
+    min-width:64px;
+    background:var(--panel-2);
+    border:1px solid var(--border);
+    color:var(--text);
+    padding:10px 6px;
+    border-radius:8px;
+    font-size:.85rem;
+    cursor:pointer;
+    text-align:center;
+    transition:background .15s,border-color .15s,transform .05s;
+  }
+  .preset:hover{ border-color:#3a4257; }
+  .preset:active{ transform:scale(.97); }
+  .preset.active{
+    background:linear-gradient(180deg,#1c2b28,#132523);
+    border-color:var(--accent);
+    color:var(--accent);
+    font-weight:600;
+  }
+  .custom-row{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    background:var(--panel-2);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:8px 12px;
+    margin-bottom:22px;
+  }
+  .custom-row label{ font-size:.85rem; color:var(--muted); white-space:nowrap; }
+  .custom-row input[type=number]{
+    flex:1;
+    background:transparent;
+    border:none;
+    color:var(--text);
+    font-size:1rem;
+    outline:none;
+    width:100%;
+  }
+  .controls{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:16px;
+    margin-bottom:22px;
+  }
+  .field label{
+    display:flex;
+    justify-content:space-between;
+    font-size:.78rem;
+    color:var(--muted);
+    margin-bottom:6px;
+  }
+  .field label span.val{ color:var(--text); font-family:monospace; }
+  input[type=range]{
+    width:100%;
+    accent-color:var(--accent);
+  }
+  .playbar{
+    display:flex;
+    gap:12px;
+    align-items:center;
+  }
+  #toggle{
+    flex:1;
+    padding:16px;
+    border:none;
+    border-radius:10px;
+    font-size:1.05rem;
+    font-weight:700;
+    letter-spacing:.3px;
+    cursor:pointer;
+    background:linear-gradient(180deg,var(--accent),#2fbf9f);
+    color:#04211a;
+    transition:transform .06s, filter .15s;
+  }
+  #toggle:active{ transform:scale(.98); }
+  #toggle.playing{
+    background:linear-gradient(180deg,var(--accent-2),#c93a58);
+    color:#2a0410;
+  }
+  .accent-toggle{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    color:var(--muted);
+    font-size:.82rem;
+    margin-top:16px;
+    justify-content:center;
+    user-select:none;
+  }
+  footer{
+    text-align:center;
+    color:var(--muted);
+    font-size:.72rem;
+    margin-top:20px;
+  }
+  footer a{ color:var(--muted); }
+</style>
+</head>
+<body>
+  <main class="card">
+    <h1>Timecode Listener</h1>
+    <p class="sub">Plays one click per frame so you can physically hear how fast a timecode runs.</p>
+
+    <div class="timecode" id="tcDisplay">00:00:00<span class="frame">:00</span></div>
+    <div class="fps-label" id="fpsLabel">24 fps &middot; stopped</div>
+
+    <div class="row" id="presets"></div>
+
+    <div class="custom-row">
+      <label for="customFps">Custom fps</label>
+      <input type="number" id="customFps" min="0.1" max="240" step="0.001" placeholder="e.g. 29.97">
+    </div>
+
+    <div class="controls">
+      <div class="field">
+        <label>Pitch <span class="val" id="pitchVal">2400 Hz</span></label>
+        <input type="range" id="pitch" min="800" max="6000" step="10" value="2400">
+      </div>
+      <div class="field">
+        <label>Volume <span class="val" id="volVal">70%</span></label>
+        <input type="range" id="volume" min="0" max="100" step="1" value="70">
+      </div>
+    </div>
+
+    <div class="playbar">
+      <button id="toggle">▶ Start</button>
+    </div>
+
+    <label class="accent-toggle">
+      <input type="checkbox" id="accentSecond" checked>
+      Accent the first frame of every second
+    </label>
+
+    <footer>Frame-accurate scheduling via the Web Audio API &middot; works fully offline</footer>
+  </main>
+
+<script>
+(function(){
+  "use strict";
+
+  // Most common broadcast / film / animation timecode rates.
+  var PRESETS = [
+    { label: "23.976", fps: 24000/1001 },
+    { label: "24",     fps: 24 },
+    { label: "25",     fps: 25 },
+    { label: "29.97",  fps: 30000/1001 },
+    { label: "30",     fps: 30 },
+    { label: "50",     fps: 50 },
+    { label: "59.94",  fps: 60000/1001 },
+    { label: "60",     fps: 60 }
+  ];
+
+  var presetsEl = document.getElementById("presets");
+  var customFpsEl = document.getElementById("customFps");
+  var toggleBtn = document.getElementById("toggle");
+  var pitchEl = document.getElementById("pitch");
+  var volumeEl = document.getElementById("volume");
+  var pitchValEl = document.getElementById("pitchVal");
+  var volValEl = document.getElementById("volVal");
+  var tcDisplay = document.getElementById("tcDisplay");
+  var fpsLabel = document.getElementById("fpsLabel");
+  var accentSecondEl = document.getElementById("accentSecond");
+
+  var fps = 24;
+  var playing = false;
+  var audioCtx = null;
+  var masterGain = null;
+
+  // Scheduler state
+  var SCHEDULE_AHEAD = 0.12;   // seconds to schedule into the future
+  var LOOKAHEAD_MS = 25;       // how often the scheduler wakes up
+  var nextClickTime = 0;
+  var frameCounter = 0;
+  var schedulerTimer = null;
+  var startTime = 0;
+
+  function buildPresets(){
+    PRESETS.forEach(function(p){
+      var btn = document.createElement("button");
+      btn.className = "preset";
+      btn.type = "button";
+      btn.textContent = p.label;
+      btn.addEventListener("click", function(){
+        setFps(p.fps, btn);
+        customFpsEl.value = "";
+      });
+      presetsEl.appendChild(btn);
+      p._btn = btn;
+    });
+  }
+
+  function setFps(value, activeBtn){
+    fps = value;
+    Array.prototype.forEach.call(document.querySelectorAll(".preset"), function(b){
+      b.classList.toggle("active", b === activeBtn);
+    });
+    updateFpsLabel();
+  }
+
+  function updateFpsLabel(){
+    fpsLabel.textContent = round3(fps) + " fps · " + (playing ? "playing" : "stopped");
+  }
+
+  function round3(n){
+    return Math.round(n * 1000) / 1000;
+  }
+
+  customFpsEl.addEventListener("input", function(){
+    var v = parseFloat(customFpsEl.value);
+    if (!isNaN(v) && v > 0){
+      Array.prototype.forEach.call(document.querySelectorAll(".preset"), function(b){
+        b.classList.remove("active");
+      });
+      fps = v;
+      updateFpsLabel();
+    }
+  });
+
+  pitchEl.addEventListener("input", function(){
+    pitchValEl.textContent = pitchEl.value + " Hz";
+  });
+  volumeEl.addEventListener("input", function(){
+    volValEl.textContent = volumeEl.value + "%";
+    if (masterGain){
+      masterGain.gain.setTargetAtTime(volumeEl.value / 100, audioCtx.currentTime, 0.01);
+    }
+  });
+
+  function ensureAudio(){
+    if (!audioCtx){
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = volumeEl.value / 100;
+      masterGain.connect(audioCtx.destination);
+    }
+    if (audioCtx.state === "suspended"){
+      audioCtx.resume();
+    }
+  }
+
+  // A single short, high-pitched click (percussive envelope on a sine osc).
+  function scheduleClick(time, accented){
+    var baseFreq = parseFloat(pitchEl.value);
+    var freq = accented ? baseFreq * 1.5 : baseFreq;
+    var osc = audioCtx.createOscillator();
+    var gain = audioCtx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, time);
+
+    var peak = accented ? 1.0 : 0.7;
+    var duration = 0.02;
+
+    gain.gain.setValueAtTime(0, time);
+    gain.gain.linearRampToValueAtTime(peak, time + 0.002);
+    gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+
+    osc.connect(gain);
+    gain.connect(masterGain);
+
+    osc.start(time);
+    osc.stop(time + duration + 0.01);
+  }
+
+  function scheduler(){
+    while (nextClickTime < audioCtx.currentTime + SCHEDULE_AHEAD){
+      var accented = accentSecondEl.checked && (frameCounter % Math.round(fps) === 0);
+      scheduleClick(nextClickTime, accented);
+      frameCounter++;
+      nextClickTime += 1 / fps;
+    }
+  }
+
+  function updateDisplay(){
+    if (!playing){
+      return;
+    }
+    var elapsed = audioCtx.currentTime - startTime;
+    var totalFrames = Math.floor(elapsed * fps);
+    var f = totalFrames % Math.round(fps);
+    var totalSeconds = Math.floor(totalFrames / fps);
+    var s = totalSeconds % 60;
+    var m = Math.floor(totalSeconds / 60) % 60;
+    var h = Math.floor(totalSeconds / 3600);
+    tcDisplay.innerHTML = pad(h) + ":" + pad(m) + ":" + pad(s) +
+      '<span class="frame">:' + pad(f) + "</span>";
+    requestAnimationFrame(updateDisplay);
+  }
+
+  function pad(n){
+    n = Math.floor(n);
+    return (n < 10 ? "0" : "") + n;
+  }
+
+  function start(){
+    ensureAudio();
+    playing = true;
+    frameCounter = 0;
+    nextClickTime = audioCtx.currentTime + 0.05;
+    startTime = nextClickTime;
+    scheduler();
+    schedulerTimer = setInterval(scheduler, LOOKAHEAD_MS);
+    toggleBtn.textContent = "■ Stop";
+    toggleBtn.classList.add("playing");
+    updateFpsLabel();
+    requestAnimationFrame(updateDisplay);
+  }
+
+  function stop(){
+    playing = false;
+    clearInterval(schedulerTimer);
+    schedulerTimer = null;
+    toggleBtn.textContent = "▶ Start";
+    toggleBtn.classList.remove("playing");
+    updateFpsLabel();
+  }
+
+  toggleBtn.addEventListener("click", function(){
+    if (playing){ stop(); } else { start(); }
+  });
+
+  buildPresets();
+  // Default to 24 fps, the classic film rate.
+  setFps(24, PRESETS[1]._btn);
+})();
+</script>
+</body>
+</html>
