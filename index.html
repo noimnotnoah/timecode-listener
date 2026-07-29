@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timecode Listener</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #14161a;
+    --panel: #1e2126;
+    --panel-border: #2c3138;
+    --accent: #4fc3f7;
+    --accent-dim: #2a5a6e;
+    --text: #e8eaed;
+    --text-dim: #8b929c;
+    --ok: #6fcf6f;
+    --warn: #e0a63a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 64px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+  }
+  main {
+    width: 100%;
+    max-width: 640px;
+  }
+  h1 {
+    font-size: 1.4rem;
+    margin: 0 0 4px;
+  }
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    margin: 0 0 24px;
+  }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 16px;
+  }
+  section h2 {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    margin: 0 0 12px;
+    font-weight: 600;
+  }
+  .preset-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  button.preset {
+    background: #262b32;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    font-variant-numeric: tabular-nums;
+  }
+  button.preset:hover:not(:disabled) { border-color: var(--accent); }
+  button.preset.active {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  button.preset:disabled, input:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .custom-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 14px;
+  }
+  .custom-row label { color: var(--text-dim); font-size: 0.9rem; }
+  .custom-row input[type=number] {
+    width: 110px;
+    background: #262b32;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 0.95rem;
+  }
+
+  .fps-readout {
+    margin-top: 14px;
+    font-size: 0.9rem;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .timecode {
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    font-size: 3rem;
+    text-align: center;
+    letter-spacing: 0.04em;
+    padding: 14px 0 6px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .transport {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 4px;
+  }
+  #startStopBtn {
+    background: var(--accent);
+    color: #04222c;
+    border: none;
+    font-weight: 700;
+    font-size: 1.1rem;
+    padding: 14px 48px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  #startStopBtn.playing {
+    background: #e05353;
+    color: #fff;
+  }
+
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+  .slider-row:last-child { margin-bottom: 0; }
+  .slider-row label {
+    width: 90px;
+    flex-shrink: 0;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+  .slider-row input[type=range] { flex: 1; }
+  .slider-row .val {
+    width: 70px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.9rem;
+    color: var(--text);
+  }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .toggle-row label { font-size: 0.9rem; }
+
+  .diag-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+    font-size: 0.85rem;
+  }
+  .diag-item { color: var(--text-dim); }
+  .diag-item span.val { color: var(--text); display: block; font-weight: 600; margin-top: 2px; }
+  .diag-item span.val.running { color: var(--ok); }
+  .diag-item span.val.suspended { color: var(--warn); }
+
+  #testToneBtn {
+    margin-top: 14px;
+    width: 100%;
+    background: #2c313a;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+  #testToneBtn:hover { border-color: var(--accent); }
+  #testToneBtn:active { background: var(--accent-dim); }
+
+  footer {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    margin-top: 8px;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Timecode Listener</h1>
+  <p class="subtitle">Hear how fast a timecode runs — one click per frame, at any broadcast rate.</p>
+
+  <section>
+    <h2>Frame rate</h2>
+    <div class="preset-grid" id="presetGrid"></div>
+    <div class="custom-row">
+      <label for="customFps">Custom fps</label>
+      <input type="number" id="customFps" step="0.001" min="0.001" placeholder="e.g. 48">
+    </div>
+    <div class="fps-readout" id="fpsReadout">Rate: —</div>
+  </section>
+
+  <section>
+    <div class="timecode" id="timecodeDisplay">00:00:00:00</div>
+    <div class="transport">
+      <button id="startStopBtn">Start</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Sound</h2>
+    <div class="slider-row">
+      <label for="pitchSlider">Pitch</label>
+      <input type="range" id="pitchSlider" min="200" max="4000" step="10" value="2200">
+      <span class="val" id="pitchVal">2200 Hz</span>
+    </div>
+    <div class="slider-row">
+      <label for="volumeSlider">Volume</label>
+      <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="0.7">
+      <span class="val" id="volumeVal">70%</span>
+    </div>
+    <div class="toggle-row">
+      <input type="checkbox" id="accentToggle" checked>
+      <label for="accentToggle">Accent the first frame of every second</label>
+    </div>
+  </section>
+
+  <section>
+    <h2>Diagnostics</h2>
+    <div class="diag-grid">
+      <div class="diag-item">Audio engine
+        <span class="val" id="engineState">not started</span>
+      </div>
+      <div class="diag-item">Sample rate
+        <span class="val" id="sampleRateVal">—</span>
+      </div>
+      <div class="diag-item">Output channels
+        <span class="val" id="channelCountVal">—</span>
+      </div>
+    </div>
+    <button id="testToneBtn">Test tone (bypasses volume &amp; scheduler)</button>
+  </section>
+
+  <footer>No sound? Press Test tone first. If that's silent too, check your OS output device and that this tab isn't muted — that's not something this page can fix.</footer>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---- Frame rate presets (exact fractions, not rounded decimals) ----
+  var PRESETS = [
+    { label: "23.976", num: 24000, den: 1001 },
+    { label: "24",     num: 24,    den: 1 },
+    { label: "25",     num: 25,    den: 1 },
+    { label: "29.97",  num: 30000, den: 1001 },
+    { label: "30",     num: 30,    den: 1 },
+    { label: "50",     num: 50,    den: 1 },
+    { label: "59.94",  num: 60000, den: 1001 },
+    { label: "60",     num: 60,    den: 1 }
+  ];
+
+  // ---- DOM refs ----
+  var presetGrid = document.getElementById("presetGrid");
+  var customFpsInput = document.getElementById("customFps");
+  var fpsReadout = document.getElementById("fpsReadout");
+  var startStopBtn = document.getElementById("startStopBtn");
+  var timecodeDisplay = document.getElementById("timecodeDisplay");
+  var pitchSlider = document.getElementById("pitchSlider");
+  var pitchVal = document.getElementById("pitchVal");
+  var volumeSlider = document.getElementById("volumeSlider");
+  var volumeVal = document.getElementById("volumeVal");
+  var accentToggle = document.getElementById("accentToggle");
+  var engineStateEl = document.getElementById("engineState");
+  var sampleRateEl = document.getElementById("sampleRateVal");
+  var channelCountEl = document.getElementById("channelCountVal");
+  var testToneBtn = document.getElementById("testToneBtn");
+
+  // ---- App state ----
+  var audioCtx = null;
+  var masterGain = null;
+  var analyser = null;
+  var isPlaying = false;
+  var schedulerTimer = null;
+  var nextClickTime = 0;
+  var frameCounter = 0;
+  var playStartAudioTime = 0;
+
+  var activePreset = null;         // currently selected preset object, or null if custom
+  var currentExactFps = 24;        // exact rate used for scheduling
+  var currentNominalFps = 24;      // rounded rate used for HH:MM:SS:FF rollover
+
+  var SCHEDULE_AHEAD = 0.12;       // seconds
+  var LOOKAHEAD_MS = 25;
+
+  // Exposed for automated verification (Playwright) and debugging.
+  window.__tcListener = {
+    get audioCtx() { return audioCtx; },
+    get analyser() { return analyser; },
+    get isPlaying() { return isPlaying; },
+    get frameCounter() { return frameCounter; },
+    get currentExactFps() { return currentExactFps; },
+    get currentNominalFps() { return currentNominalFps; }
+  };
+
+  function pad(n) { return String(n).padStart(2, "0"); }
+
+  // ---- Preset buttons ----
+  var presetButtons = [];
+  PRESETS.forEach(function (preset) {
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "preset";
+    btn.textContent = preset.label;
+    btn.addEventListener("click", function () { selectPreset(preset, btn); });
+    presetGrid.appendChild(btn);
+    presetButtons.push(btn);
+  });
+
+  function clearPresetHighlight() {
+    presetButtons.forEach(function (b) { b.classList.remove("active"); });
+  }
+
+  function selectPreset(preset, btn) {
+    activePreset = preset;
+    currentExactFps = preset.num / preset.den;
+    currentNominalFps = Math.round(currentExactFps);
+    customFpsInput.value = "";
+    clearPresetHighlight();
+    btn.classList.add("active");
+    updateFpsReadout();
+  }
+
+  customFpsInput.addEventListener("input", function () {
+    var v = parseFloat(customFpsInput.value);
+    if (!isNaN(v) && v > 0) {
+      activePreset = null;
+      currentExactFps = v;
+      currentNominalFps = Math.max(1, Math.round(v));
+      clearPresetHighlight();
+      updateFpsReadout();
+    }
+  });
+
+  function updateFpsReadout() {
+    if (activePreset) {
+      fpsReadout.textContent = "Rate: " + activePreset.label + " fps (" +
+        activePreset.num + "/" + activePreset.den + " exact)";
+    } else {
+      fpsReadout.textContent = "Rate: " + currentExactFps + " fps (custom)";
+    }
+  }
+
+  function setRateControlsDisabled(disabled) {
+    presetButtons.forEach(function (b) { b.disabled = disabled; });
+    customFpsInput.disabled = disabled;
+  }
+
+  // Default selection: 24fps.
+  selectPreset(PRESETS[1], presetButtons[1]);
+
+  // ---- Sliders ----
+  pitchSlider.addEventListener("input", function () {
+    pitchVal.textContent = pitchSlider.value + " Hz";
+  });
+  volumeSlider.addEventListener("input", function () {
+    volumeVal.textContent = Math.round(parseFloat(volumeSlider.value) * 100) + "%";
+    if (masterGain) masterGain.gain.value = parseFloat(volumeSlider.value);
+  });
+
+  // ---- Audio engine ----
+  function ensureAudioContext() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = parseFloat(volumeSlider.value);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      masterGain.connect(analyser);
+      analyser.connect(audioCtx.destination);
+    }
+    if (audioCtx.state === "suspended") {
+      audioCtx.resume();
+    }
+  }
+
+  function scheduleClick(frameNumber, time) {
+    var isAccent = accentToggle.checked && (frameNumber % currentNominalFps === 0);
+    var baseFreq = parseFloat(pitchSlider.value);
+    var freq = isAccent ? Math.min(baseFreq * 1.5, audioCtx.sampleRate / 2 - 100) : baseFreq;
+
+    var osc = audioCtx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, time);
+
+    var gainNode = audioCtx.createGain();
+    var peak = isAccent ? 1.0 : 0.6;
+    gainNode.gain.setValueAtTime(0, time);
+    gainNode.gain.linearRampToValueAtTime(peak, time + 0.002);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, time + 0.02);
+
+    osc.connect(gainNode);
+    gainNode.connect(masterGain);
+    osc.start(time);
+    osc.stop(time + 0.03);
+  }
+
+  function scheduler() {
+    while (nextClickTime < audioCtx.currentTime + SCHEDULE_AHEAD) {
+      scheduleClick(frameCounter, nextClickTime);
+      nextClickTime += 1 / currentExactFps;
+      frameCounter++;
+    }
+    schedulerTimer = setTimeout(scheduler, LOOKAHEAD_MS);
+  }
+
+  function startPlayback() {
+    isPlaying = true;
+    startStopBtn.textContent = "Stop";
+    startStopBtn.classList.add("playing");
+    setRateControlsDisabled(true);
+
+    frameCounter = 0;
+    playStartAudioTime = audioCtx.currentTime + 0.05;
+    nextClickTime = playStartAudioTime;
+    scheduler();
+  }
+
+  function stopPlayback() {
+    isPlaying = false;
+    startStopBtn.textContent = "Start";
+    startStopBtn.classList.remove("playing");
+    setRateControlsDisabled(false);
+    if (schedulerTimer) clearTimeout(schedulerTimer);
+  }
+
+  startStopBtn.addEventListener("click", function () {
+    // Synchronous, no awaits before this point: satisfies autoplay-gesture requirements.
+    if (!isPlaying) {
+      ensureAudioContext();
+      startPlayback();
+    } else {
+      stopPlayback();
+    }
+  });
+
+  testToneBtn.addEventListener("click", function () {
+    ensureAudioContext(); // same synchronous-gesture requirement applies here
+    var t = audioCtx.currentTime;
+    var osc = audioCtx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(440, t);
+
+    var g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.8, t);
+    g.gain.setValueAtTime(0.8, t + 0.9);
+    g.gain.linearRampToValueAtTime(0, t + 1.0);
+
+    // Wired straight to destination: bypasses master/volume gain and the click scheduler.
+    osc.connect(g);
+    g.connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 1.0);
+  });
+
+  // ---- Display loop (diagnostics + timecode), driven by the audio clock ----
+  function renderTimecode(frameIndex) {
+    var ff = frameIndex % currentNominalFps;
+    var totalSeconds = Math.floor(frameIndex / currentNominalFps);
+    var ss = totalSeconds % 60;
+    var mm = Math.floor(totalSeconds / 60) % 60;
+    var hh = Math.floor(totalSeconds / 3600);
+    timecodeDisplay.textContent = pad(hh) + ":" + pad(mm) + ":" + pad(ss) + ":" + pad(ff);
+  }
+
+  function mainLoop() {
+    if (audioCtx) {
+      engineStateEl.textContent = audioCtx.state;
+      engineStateEl.className = "val " + audioCtx.state;
+      sampleRateEl.textContent = audioCtx.sampleRate + " Hz";
+      channelCountEl.textContent = audioCtx.destination.channelCount;
+    } else {
+      engineStateEl.textContent = "not started";
+      engineStateEl.className = "val";
+      sampleRateEl.textContent = "—";
+      channelCountEl.textContent = "—";
+    }
+
+    if (isPlaying && audioCtx) {
+      var elapsed = Math.max(0, audioCtx.currentTime - playStartAudioTime);
+      var frameIndex = Math.floor(elapsed * currentExactFps);
+      renderTimecode(frameIndex);
+    }
+
+    requestAnimationFrame(mainLoop);
+  }
+  requestAnimationFrame(mainLoop);
+})();
+</script>
+</body>
+</html>
