@@ -377,6 +377,18 @@
   });
 
   // ---- Audio engine ----
+  // iOS Safari ties Web Audio unlocking to touchstart/touchend, not the
+  // synthetic "click" some browsers fire afterward — so this must run
+  // synchronously from a real touch/click gesture, and a silent buffer
+  // must be played once to fully unlock the hardware on older iOS Safari.
+  function unlockAudioForIOS(ctx) {
+    var buffer = ctx.createBuffer(1, 1, 22050);
+    var src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.connect(ctx.destination);
+    if (src.start) { src.start(0); } else { src.noteOn(0); }
+  }
+
   function ensureAudioContext() {
     if (!audioCtx) {
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -390,6 +402,7 @@
     if (audioCtx.state === "suspended") {
       audioCtx.resume();
     }
+    unlockAudioForIOS(audioCtx);
   }
 
   function scheduleClick(frameNumber, time) {
@@ -441,6 +454,12 @@
     setRateControlsDisabled(false);
     if (schedulerTimer) clearTimeout(schedulerTimer);
   }
+
+  // touchstart fires before the synthetic "click" and is what iOS Safari
+  // actually requires to unlock audio; { passive: true } since it only
+  // primes the audio graph and never calls preventDefault.
+  startStopBtn.addEventListener("touchstart", ensureAudioContext, { passive: true });
+  testToneBtn.addEventListener("touchstart", ensureAudioContext, { passive: true });
 
   startStopBtn.addEventListener("click", function () {
     // Synchronous, no awaits before this point: satisfies autoplay-gesture requirements.
